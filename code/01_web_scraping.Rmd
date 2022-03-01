@@ -4,26 +4,77 @@ author: "Jae Yeon Kim"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+# Install packages 
+
+```{r}
+if (!require(pacman)) install.packages("pacman")
+
+pacman::p_load(tidyverse, 
+               purrr, 
+               rvest,
+               readtext,
+               webdriver,
+               webshot,
+               tm,
+               vroom,
+               here)
+
+# install.packages("remotes")
+remotes::install_github("rlesur/klippy")
+
+# activate klippy
+klippy::klippy()
+
+# load custom functions 
+source(here("functions", "text_clean.R"))
 ```
 
-## R Markdown
+# Identity website elments 
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+The following code is adapted from here: https://slcladal.github.io/webcrawling.html
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+```{r}
+# webshot::install_phantomjs()
 
-```{r cars}
-summary(cars)
+# setup 
+inst <- run_phantomjs()
+session <- Session$new(port = inst$port)
+
+# go to url 
+session$go("https://www.advancingjustice-atlanta.org/newslettersarchieve")
+
+# render page 
+source <- session$getSource()
+
+# html document
+html_doc <- read_html(source)
 ```
 
-## Including Plots
+```{r}
+# text links 
+links <- html_doc %>%
+  html_nodes(xpath = "//div[@class='campaign']/a") %>%
+  html_attr(name = "href")
 
-You can also embed plots, for example:
+# meta data 
+meta <- html_doc %>%
+  html_nodes(xpath = "//div[@class='campaign']") 
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+meta_out <- purrr::map(meta, possibly(meta2content, otherwise = "Error"))
+
+meta_out <- meta_out %>%
+  reduce(bind_rows)
+
+# combine both of them
+meta_out$link <- links
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+texts <- purrr::map_dfr(meta_out$link, link2text)
+
+names(meta_out) <- c("date", "title", "url")
+
+combined <- left_join(meta_out, texts)
+  
+vroom::vroom_write(combined, file = here("processed_data", "aaaj_texts.csv"))
+```
