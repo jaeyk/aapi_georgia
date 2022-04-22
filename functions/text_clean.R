@@ -17,6 +17,7 @@ meta2content <- function(meta) {
 }
 
 link2text <- function(link) {
+
   
   message(link)
   
@@ -71,7 +72,9 @@ link2text <- function(link) {
   text <- removePunctuation(text)
   
   df <- data.frame(url = link,
-                   msg = text)}
+                   msg = text)
+  
+  }
   
   return(df)
   

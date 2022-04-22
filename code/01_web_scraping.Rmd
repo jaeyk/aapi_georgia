@@ -10,6 +10,8 @@ output: html_document
 if (!require(pacman)) install.packages("pacman")
 
 pacman::p_load(tidyverse, 
+               lubridate,
+               zoo,
                purrr, 
                rvest,
                readtext,
@@ -17,7 +19,10 @@ pacman::p_load(tidyverse,
                webshot,
                tm,
                vroom,
-               here)
+               here, 
+               tidytext, 
+               tidymodels,
+               glue)
 
 # install.packages("remotes")
 remotes::install_github("rlesur/klippy")
@@ -69,6 +74,8 @@ meta_out <- meta_out %>%
 meta_out$link <- links
 ```
 
+# Extract the texts from the website 
+
 ```{r}
 texts <- purrr::map_dfr(meta_out$link, link2text)
 
@@ -77,4 +84,42 @@ names(meta_out) <- c("date", "title", "url")
 combined <- left_join(meta_out, texts)
   
 vroom::vroom_write(combined, file = here("processed_data", "aaaj_texts.csv"))
+```
+
+# Exploratoray data analysis (data visualization)
+
+```{r}
+combined <- vroom::vroom(here("processed_data", "aaaj_texts.csv"))
+```
+
+```{r}
+comb_n <- combined %>%
+  mutate(month = as.yearmon(date, "%Y %m")) %>%
+#  distinct(month, title, msg, url) %>%
+  group_by(month) %>%
+  count() 
+
+comb_n %>%
+  ggplot(aes(x = as.Date(month), y = n)) +
+  geom_point() +
+  geom_line(alpha = 0.3) +
+  labs(x = "Date", y = "Count") +
+  geom_vline(xintercept = as.Date("2016-11-08"),
+             col = "red", 
+             linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2020-11-03"),
+             col = "red", 
+             linetype = "dotted") +
+  geom_rect(aes(xmin = as.Date("2016-11-08"), xmax = as.Date("2020-11-03"), 
+                ymin = -Inf, ymax = +Inf, 
+                fill = "2016-2022 presidential election cycle"),
+                inherit.aes = FALSE,
+                alpha = 0.01) +
+  theme_bw() +
+  labs(title = "Asian Americans for Advancing Justice - Atlanta",
+       subtitle = glue("Newsletter Publication Pattern, {min(year(comb_n$month))}-{max(year(comb_n$month))}"),
+       x = "") +
+  guides(fill="none")
+
+ggsave(here("outputs", "aaaj_pub_desc.png"))
 ```
