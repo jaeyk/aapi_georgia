@@ -13,28 +13,43 @@ pacman::p_load(tidyverse,
                lubridate,
                zoo,
                purrr, 
-               rvest,
+               tm.plugin.mail,
                readtext,
-               webdriver,
-               webshot,
                tm,
                vroom,
                here, 
                tidytext, 
                tidymodels,
                glue,
-               spacyr)
-
-# install.packages("remotes")
-remotes::install_github("rlesur/klippy")
-
-# activate klippy
-klippy::klippy()
+               spacyr, 
+               pdftools)
 
 # load custom functions 
 source(here("functions", "utils.R"))
 
 spacy_initialize(save_profile = TRUE)
+```
+
+# Load files 
+
+The code was adapted from here: https://stackoverflow.com/questions/32879496/import-and-parse-eml-files
+
+```{r}
+mbf <- here("raw_data", "aaaf", "newslettters")
+
+mailfiles <- list.files(mbf, full.names=TRUE)
+
+pdf_files <- mailfiles[str_detect(mailfiles, ".pdf")]
+
+length(pdf_files)
+```
+
+# Parse texts 
+
+```{r}
+df <- map_dfr(seq(length(pdf_files)), parse_pdf)
+
+write_csv(df, here("processed_data", "aaaf_texts.csv"))
 ```
 
 # Identity website elments 
@@ -93,8 +108,6 @@ vroom::vroom_write(combined, file = here("processed_data", "aaaj_texts.csv"))
 
 ```{r}
 combined <- vroom::vroom(here("processed_data", "aaaj_texts.csv"))
-
-nrow(combined)
 ```
 
 ```{r}
