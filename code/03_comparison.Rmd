@@ -1,0 +1,560 @@
+---
+title: "01_web_scraping"
+author: "Jae Yeon Kim"
+output: html_document
+---
+
+# Install packages
+
+```{r}
+if (!require(pacman)) install.packages("pacman")
+
+pacman::p_load(tidyverse,
+               lubridate,
+               zoo,
+               purrr,
+               readtext,
+               textstem,
+               textclean,
+               stopwords,
+               stm,
+               quanteda,
+               tm,
+               vroom,
+               here,
+               tidytext,
+               tidymodels,
+               keyATM,
+               glue,
+               spacyr,
+               pdftools,
+               devtools,
+               igraph,
+               beepr)
+
+# load custom functions
+source(here("functions", "utils.R"))
+
+# spacy_initialize(save_profile = TRUE)
+
+#devtools::install_github("cbail/textnets")
+#library(textnets)
+
+#source(here("functions", "textnets.R"))
+```
+
+# Load data
+
+```{r}
+# AAAJ
+aaaj <- vroom::vroom(here("processed_data", "aaaj_texts.csv"))
+
+# AAAF
+aaaf <- read_csv(here("processed_data", "aaaf_texts.csv"))
+```
+
+# Bind data
+
+```{r}
+aaaj <- aaaj %>%
+  rename(subject = title,
+         text = msg)
+
+df <- full_join(aaaj %>%
+                  select(-url) %>%
+                  mutate(source = "AAAJ-Atlanta"),
+                aaaf %>%
+                  mutate(source = "AAAF"))
+
+df$processed_text <- clean_text(df$text)
+df$processed_subject <- clean_text(df$subject)
+
+df_copy <- df
+```
+
+# Visualize data
+
+```{r}
+comb_n <- df %>%
+  mutate(month = as.yearmon(date, "%Y %m")) %>%
+  #mutate(week = lubridate::week(date)) %>%
+  group_by(month, source) %>%
+  count()
+
+#all <- left_join(comb_n, frame)
+```
+
+```{r}
+unique_comb_n <- df %>%
+  distinct(date, processed_subject, source) %>%
+  mutate(month = as.yearmon(date, "%Y %m")) %>%
+  #mutate(week = lubridate::week(date)) %>%
+  group_by(month, source) %>%
+  count() %>%
+  rename(unique_n = n)
+```
+
+```{r}
+comb_n %>%
+  ggplot(aes(x = as.Date(month), y = n, col = source)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(span = 0.3) +
+  labs(x = "Date", y = "Count") +
+  geom_vline(xintercept = as.Date("2016-11-08"),
+             col = "red",
+             linetype = "dotted",
+             size = 2) +
+  geom_vline(xintercept = as.Date("2020-11-03"),
+             col = "red",
+             linetype = "dotted",
+             size = 2) +
+  theme_bw() +
+  labs(title = glue("Monthly newsletter publication count, {min(year(comb_n$month))}-{max(year(comb_n$month))}"),
+       x = "",
+       subtitle = "Dotted redlines: U.S. Presidential elections") +
+  guides(fill="none") +
+  scale_colour_viridis_d(begin = 0.2, end = 0.5) +
+  labs(color = "Source")
+
+ggsave(here("outputs", "pub_count.png"))
+```
+
+```{r}
+all <- left_join(comb_n, unique_comb_n) %>%
+  pivot_longer(cols = c("n", "unique_n"),
+               names_to = "type",
+               values_to = "value")
+
+all %>%
+  mutate(source = factor(source, levels = c("AAAJ-Atlanta", "AAAF"))) %>%
+  mutate(type = recode(type,
+                       "n" = "With repeated letters",
+                       "unique_n" = "Without repeated letters")) %>%
+  ggplot(aes(x = as.Date(month), y = value, col = type)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(span = 0.3) +
+  labs(x = "Date", y = "Count") +
+  geom_vline(xintercept = as.Date("2016-11-08"),
+             col = "red",
+             linetype = "dotted",
+             size = 2) +
+  geom_vline(xintercept = as.Date("2020-11-03"),
+             col = "red",
+             linetype = "dotted",
+             size = 2) +
+  theme_bw() +
+  labs(title = glue("Monthly newsletter publication count, {min(year(all$month))}-{max(year(all$month))}"),
+       x = "",
+       subtitle = "Dotted redlines: 2016 and 2022 U.S. Presidential elections") +
+  theme(legend.position = "bottom") +
+  scale_colour_viridis_d(begin = 0.2, end = 0.5) +
+  labs(color = "Source") +
+  facet_wrap(~source)
+
+ggsave(here("outputs", "pub_count_ext.png"))
+```
+
+Check the duplicate duration.
+
+```{r}
+dupes <- df %>%
+  mutate(source = factor(source, levels = c("AAAJ-Atlanta", "AAAF"))) %>%
+  group_by(processed_subject) %>%
+  filter(n() > 1)
+
+map_dfr(seq(nrow(dupes) - 1), cal_dist) %>%
+  filter(!is.na(dist)) %>%
+  ggplot(aes(x = dist)) +
+    geom_histogram() +
+    facet_wrap(~source) +
+    theme_bw() +
+    labs(x = "Duration", y = "Count")
+
+ggsave(here("outputs", "dupe_count.png"))
+```
+# Named entity recognition
+
+```{r}
+raw_text <- df %>%
+  mutate(year = lubridate::year(date)) %>%
+  mutate(text = clean_text(text)) %>%
+  distinct(source, text, year, date) %>%
+  mutate(post_trump = if_else(date >= "2017-01-20", "Post-Trump", "Pre-Trump"))
+```
+
+```{r}
+parsed_text <- spacy_parse(raw_text$text, tag = TRUE, entity = FALSE, 
+                           lemma = TRUE)
+
+noun_text <- parsed_text %>% filter(pos == "NOUN")
+verb_text <- parsed_text %>% filter(pos == "VERB")
+
+entity_text <- spacy_parse(raw_text$text, tag = FALSE, entity = TRUE, 
+                           lemma = TRUE) %>% 
+  entity_consolidate()
+
+raw_text <- raw_text %>%
+  rowid_to_column("doc_id") %>%
+  mutate(doc_id = glue("text{doc_id}"))
+```
+
+```{r}
+noun_count <- left_join(noun_text, raw_text %>%
+                           select(doc_id, source, post_trump)) %>%
+  group_by(source, post_trump, lemma) %>%
+  summarize(n = n()) %>%
+  slice_max(order_by = n, n = 15)
+
+verb_count <- left_join(verb_text, raw_text %>%
+                           select(doc_id, source, post_trump)) %>%
+  group_by(source, post_trump, lemma) %>%
+  summarize(n = n()) %>%
+  slice_max(order_by = n, n = 15)
+
+entity_count <- left_join(entity_text, raw_text %>%
+                           select(doc_id, source, post_trump)) %>%
+  filter(entity_type %in% c("ORG")) %>%
+  filter(!str_detect(lemma, "NA|justice|fund|advance|aaaj|aaaf|asian")) %>%
+  group_by(source, post_trump, lemma) %>%
+  summarize(n = n()) %>%
+  slice_max(order_by = n, n = 10)
+```
+
+```{r}
+noun_count %>%
+  ggplot(aes(x = lemma, y = n, fill = factor(post_trump))) +
+    geom_col(position = position_dodge2(width = 1)) +
+    facet_wrap(~source) +
+    coord_flip() +
+    labs(x = "Top 5 nouns", y = "Newsletter count",
+         fill = "Year") +
+    theme_bw()
+
+ggsave(here("outputs", "nouns.png"))
+
+verb_count %>%
+  ggplot(aes(x = lemma, y = n, fill = factor(post_trump))) +
+    geom_col(position = position_dodge2(width = 1)) +
+    facet_wrap(~source) +
+    coord_flip() +
+    labs(x = "Top 5 verbs", y = "Newsletter count",
+         fill = "Year") +
+    theme_bw()
+
+ggsave(here("outputs", "verbs.png"))
+
+entity_count %>%
+  ggplot(aes(x = lemma, y = n, fill = factor(post_trump))) +
+    geom_col(position = position_dodge2(width = 1)) +
+    facet_wrap(~source) +
+    coord_flip() +
+    labs(x = "Top 5 organizaion entities", y = "Newsletter count",
+         fill = "Year") +
+    theme_bw()
+
+ggsave(here("outputs", "entities.png"))
+```
+# Event dictionaries
+
+```{r}
+electoral_politiccs <- c("vote", "voter", "ballot", "registration", "candidate", "ticket", "election")
+
+community_building <- c("community", "member", "event", "champion")
+```
+
+# Preprocess
+
+```{r}
+raw_copy <- raw_text 
+```
+
+```{r}
+raw_text <- raw_text %>%
+  mutate(trump = if_else(year >= 2017, 1, 0)) %>%
+  mutate(text = clean_text(text)) %>%
+  filter(!is.na(str_length(text))| !str_length(text) == 0) %>%
+  filter(!str_detect(text, "atlanta 조지아"))
+
+raw_text
+```
+
+```{r}
+########## Overall ##########
+# Build a corpus
+my_corpus <- corpus(raw_text$text)
+
+# Add the document-level covariates
+docvars(my_corpus, "source") <- raw_text$source %>% as.factor()
+docvars(my_corpus, "year") <- raw_text$year
+docvars(my_corpus, "date") <- raw_text$date
+docvars(my_corpus,
+"trump") <- raw_text$trump %>% as.factor()
+
+docvars(my_corpus) <- date2index(my_corpus)
+
+########## AAAJ-Atlanta only ##########
+# Build a corpus
+aaaj_raw <- raw_text %>%
+  filter(str_detect(source, "AAAJ"))
+
+aaaj_corpus <- corpus(aaaj_raw$text)
+
+# Add the document-level covariates
+docvars(aaaj_corpus, "source") <- aaaj_raw$source %>% as.factor()
+docvars(aaaj_corpus, "year") <- aaaj_raw$year
+docvars(aaaj_corpus, "date") <- aaaj_raw$date
+docvars(aaaj_corpus,
+"trump") <- aaaj_raw$trump %>% as.factor()
+
+docvars(aaaj_corpus) <- date2index(aaaj_corpus)
+```
+
+```{r}
+write_rds(my_corpus, here("outputs", "my_corpus.rds"))
+my_corpus <- read_rds(here("outputs", "my_corpus.rds"))
+
+write_rds(aaaj_corpus, here("outputs", "aaaj_corpus.rds"))
+```
+
+```{r}
+# Tokenize
+data_tokens <- tokens(my_corpus,
+                      remove_url = TRUE)
+
+aaaj_tokens <- tokens(aaaj_corpus,
+                      remove_url = TRUE)
+```
+
+# Document-term matrix
+
+```{r}
+# Construct a document-term matrix
+data_dfm <- dfm(data_tokens) 
+aaaj_dfm <- dfm(aaaj_tokens)
+```
+
+
+```{r}
+write_rds(data_dfm, here("processed_data", "data_dfm.rds"))
+data_dfm <- read_rds(here("processed_data", "data_dfm.rds"))
+```
+
+# KeyATM
+
+## Prepare the data
+
+```{r}
+# Prepare the data for keyATM
+future::plan("multiprocess")
+
+tictoc::tic()
+keyATM_docs <- keyATM_read(texts = data_dfm,
+                           check = TRUE, 
+                           keep_docnames = TRUE, 
+                           progress_bar = TRUE)
+# check document number 332
+tictoc::toc()
+
+aaaj_docs <- keyATM_read(texts = aaaj_dfm,
+                           check = TRUE, 
+                           keep_docnames = TRUE, 
+                           progress_bar = TRUE)
+```
+
+```{r}
+# Export
+write_rds(keyATM_docs, here("processed_data",
+                            "keyATM_docs.rds"))
+
+keyATM_docs <- read_rds(here("processed_data", "keyATM_docs.rds"))
+```
+
+## Create a dictionary of the key words
+
+```{r}
+keywords <- list(
+
+  electoral_politics = c("vote", "voter", "ballot", "registration", "candidate", "ticket", "election", "register", "legislative"),
+
+  community_building = c("community", "member", "event", "champion", "serve", "banquet")
+
+    )
+```
+
+
+## Check keywords
+
+```{r}
+key_viz <- visualize_keywords(docs = keyATM_docs,
+                              keywords = keywords)
+
+save_fig(key_viz, here("outputs", "keyword.png"))
+
+vf <- values_fig(key_viz)
+
+key_viz
+```
+
+## Number of K
+
+```{r}
+#future::plan(multiprocess)
+
+set.seed(1234)
+
+# Run many models
+many_models <- tibble(K = c(5:10)) %>%
+               mutate(topic_model = map(K, ~stm(data_dfm,
+                                                       K = .,
+                                                       verbose = TRUE)))
+
+write_rds(many_models, here("outputs", "many_models.rds"))
+
+many_models <- read_rds(here("outputs", "many_models.rds"))
+```
+
+```{r}
+# Resolve conflicts
+conflicted::conflict_prefer("purrr", "map")
+
+k_search_diag <- visualize_diag(data_dfm, many_models)
+
+ggsave(here("outputs", "k_search_diag.png"))
+```
+
+## Static topic modeling
+
+```{r}
+future::plan("multiprocess")
+out <- keyATM(docs = keyATM_docs,       # text input
+              no_keyword_topics = 5,    # number of topics without keywords
+              keywords = keywords,      # keywords
+              model = "base",           # select the model
+              options = list(seed = 250,
+              store_theta = TRUE))
+
+write_rds(out, here("outputs", "keyATM_out.rds"))
+out <- read_rds(here("outputs", "keyATM_out.rds"))
+
+# theta = document-topic distribution
+out$theta <- round(out$theta, 0)
+
+# sum
+sums <- c(sum(out$theta[,1]), sum(out$theta[,2]), sum(out$theta[,3:7]))
+```
+
+```{r}
+topic_out <- tibble(topic_sums = sums,
+                    names = c("Electoral poliics", "Community building", "Others")) %>%
+           mutate(prop = topic_sums / sum(topic_sums),
+                  prop = round(prop,2))
+
+topic_out %>%
+    ggplot(aes(x = fct_reorder(names, -prop), y = prop)) +
+    geom_col(position = "dodge") +
+    scale_y_continuous(labels =
+    scales::percent_format(accuracy = 1)) +
+    labs(x = "Topic name",
+         y = "Topic proportion",
+         title = "Topic-document distributions") +
+    theme_bw()
+
+ggsave(here("outputs", "topic_modeling_static.png"))
+```
+
+## Covariate topic modeling
+
+```{r}
+# Extract covariates
+vars <- docvars(my_corpus) %>%
+  mutate(source = if_else(str_detect(source, "AAAJ"), 1, 0)) %>%
+  mutate(source = as.factor(source))
+
+vars_selected <- vars %>% select(source, trump)
+
+# Topic modeling
+covariate_out <- keyATM(docs = keyATM_docs,       # text input
+              no_keyword_topics = 5,    # number of topics without keywords
+              keywords = keywords,      # keywords
+              model = "covariate",           # select the model
+              model_settings = list(covariates_data = vars_selected,
+                                    covariates_formula = ~ source + trump),
+              options = list(seed = 250,
+              store_theta = TRUE))
+
+covariates_get(covariate_out) %>% head()
+```
+
+```{r}
+# Predicted mean of the document-term distribution for intervention
+
+#covariates_info(covariate_out)
+
+strata_topic <- by_strata_DocTopic(covariate_out, by_var = "source1",
+                                   labels = c("AAAF", "AAAJ-Atlanta"))
+
+plot(strata_topic, var_name = "", show_topic = c(1:2))
+
+ggsave(here("outputs", "topic_modeling_covariate.png"))
+```
+
+## Dynamic topic modeling 
+
+```{r}
+tictoc::tic()
+dynamic_out_day <- keyATM(docs = aaaj_docs,    # text input
+                      no_keyword_topics = 5,              # number of topics without keywords
+                      keywords = keywords,       # keywords
+                      model = "dynamic",         # select the model
+                      model_settings = list(time_index = docvars(aaaj_corpus)$index,                                          num_states = 5),
+                      options = list(seed = 250, store_theta = TRUE, thinning = 5))
+tictoc::toc()
+```
+
+```{r}
+# Save 
+write_rds(dynamic_out_day, here("outputs", "dynamic_out_day.rds"))
+```
+
+```{r}
+dynamic_out_day <- read_rds(here("outputs", "dynamic_out_day.rds"))
+
+# Visualize 
+fig_timetrend_day <- plot_timetrend(dynamic_out_day, time_index_label = as.Date(docvars(aaaj_corpus)$date), xlab = "Date", width = 5) 
+
+keyATM::save_fig(fig_timetrend_day, here("outputs", "dynamic_topic_day.png"))
+
+df <- data.frame(date = fig_timetrend_day$values$time_index,
+                mean = fig_timetrend_day$values$Point,
+                upper = fig_timetrend_day$values$Upper,
+                lower = fig_timetrend_day$values$Lower,
+                topic = fig_timetrend_day$values$Topic)
+```
+
+```{r}
+df %>% ggplot() +
+    #geom_line(aes(x = date, y = mean),
+     #         alpha = 0.5, size = 1.2) +
+    geom_ribbon(aes(x = date, y = mean, ymax = upper, ymin = lower),
+                alpha = 0.3) +
+    geom_smooth(aes(x = date, y = mean, ymax = upper, ymin = lower),
+                method = "loess", 
+                size = 1.5, 
+                span = 0.3) + # for given x, loess will use the 0.3 * N closet poitns to x to fit. source: https://rafalab.github.io/dsbook/smoothing.html
+    labs(x = "Date", 
+         y = "Topic proportion") +
+    facet_wrap(~topic) +
+    geom_vline(xintercept = as.Date("2016-11-08"),
+             col = "red",
+             linetype = "dotted",
+             size = 2) +
+    geom_vline(xintercept = as.Date("2020-11-03"),
+             col = "red",
+             linetype = "dotted",
+             size = 2) +
+    scale_y_continuous(labels =    
+    scales::percent_format(accuracy = 1)) +
+    theme_bw()
+
+ggsave(here("outputs", "topic_dynamic_trend.png"))
+```
