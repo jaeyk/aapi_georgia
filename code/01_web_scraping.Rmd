@@ -1,5 +1,5 @@
 ---
-title: "01_web_scraping"
+title: "Web scraping"
 author: "Jae Yeon Kim"
 output: html_document
 ---
@@ -7,6 +7,7 @@ output: html_document
 # Install packages 
 
 ```{r}
+
 if (!require(pacman)) install.packages("pacman")
 
 pacman::p_load(tidyverse, 
@@ -26,7 +27,7 @@ pacman::p_load(tidyverse,
                spacyr)
 
 # install.packages("remotes")
-remotes::install_github("rlesur/klippy")
+# remotes::install_github("rlesur/klippy")
 
 # activate klippy
 klippy::klippy()
@@ -34,7 +35,12 @@ klippy::klippy()
 # load custom functions 
 source(here("functions", "utils.R"))
 
-spacy_initialize(save_profile = TRUE)
+# python setup
+#reticulate::use_python("/home/jae/anaconda3/bin/python") # whereis python
+
+# spacy setup
+#spacy_install()
+spacy_initialize(python_executable = "/home/jae/anaconda3/bin/python")
 ```
 
 # Identity website elments 
@@ -42,7 +48,7 @@ spacy_initialize(save_profile = TRUE)
 The following code is adapted from here: https://slcladal.github.io/webcrawling.html
 
 ```{r}
-# webshot::install_phantomjs()
+#webshot::install_phantomjs()
 
 # setup 
 inst <- run_phantomjs()

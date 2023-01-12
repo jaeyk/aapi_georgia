@@ -1,5 +1,5 @@
 ---
-title: "01_web_scraping"
+title: "Comparison"
 author: "Jae Yeon Kim"
 output: html_document
 ---
@@ -7,10 +7,13 @@ output: html_document
 # Install packages
 
 ```{r}
+options(max.print = 999999) # set an extreme value for the max print outputs 
+
 if (!require(pacman)) install.packages("pacman")
 
 pacman::p_load(tidyverse,
                lubridate,
+               stringr, 
                zoo,
                purrr,
                readtext,
@@ -28,9 +31,7 @@ pacman::p_load(tidyverse,
                glue,
                spacyr,
                pdftools,
-               devtools,
-               igraph,
-               beepr)
+               devtools)
 
 # load custom functions
 source(here("functions", "utils.R"))
@@ -70,35 +71,53 @@ df$processed_text <- clean_text(df$text)
 df$processed_subject <- clean_text(df$subject)
 
 df_copy <- df
+
+# press release 
+df$press_release <- if_else(str_detect(df$processed_subject, "press re"), 1, 0)
+
+# recap
+df$recap <- if_else(str_detect(df$processed_subject, "recap"), 1, 0)
+
+# the total number of documents 
+paste("the total number of documents:", nrow(df))
+
+paste("the percentage of press releases:", mean(df$press_release)) # this pct is quite substantial
+
+paste("the percentage of recaps:", mean(df$recap)) # this pct is pretty small 
 ```
 
-# Visualize data
+# Wrangle data
 
 ```{r}
+# add week variable
+df <- df %>%
+  mutate(week = cut(ymd(date), breaks = "week"))
+  
 comb_n <- df %>%
-  mutate(month = as.yearmon(date, "%Y %m")) %>%
-  #mutate(week = lubridate::week(date)) %>%
-  group_by(month, source) %>%
+  group_by(week, source) %>%
   count()
-
-#all <- left_join(comb_n, frame)
 ```
 
 ```{r}
 unique_comb_n <- df %>%
   distinct(date, processed_subject, source) %>%
-  mutate(month = as.yearmon(date, "%Y %m")) %>%
-  #mutate(week = lubridate::week(date)) %>%
-  group_by(month, source) %>%
+  mutate(week = cut(ymd(date), breaks = "week")) %>%
+  group_by(week, source) %>%
   count() %>%
   rename(unique_n = n)
 ```
 
 ```{r}
+stringdist(df$subject[1], df$subject[2], method = 'cosine', q = 1)
+```
+
+# Visualize data
+
+```{r}
 comb_n %>%
-  ggplot(aes(x = as.Date(month), y = n, col = source)) +
+  ggplot(aes(x = as.Date(week), y = n, col = source)) +
   geom_point(alpha = 0.3) +
-  geom_smooth(span = 0.3) +
+  geom_smooth(span = 0.5) +
   labs(x = "Date", y = "Count") +
   geom_vline(xintercept = as.Date("2016-11-08"),
              col = "red",
@@ -109,7 +128,7 @@ comb_n %>%
              linetype = "dotted",
              size = 2) +
   theme_bw() +
-  labs(title = glue("Monthly newsletter publication count, {min(year(comb_n$month))}-{max(year(comb_n$month))}"),
+  labs(title = glue("Monthly newsletter publication count, {min(year(comb_n$week))}-{max(year(comb_n$week))}"),
        x = "",
        subtitle = "Dotted redlines: U.S. Presidential elections") +
   guides(fill="none") +
@@ -130,7 +149,7 @@ all %>%
   mutate(type = recode(type,
                        "n" = "With repeated letters",
                        "unique_n" = "Without repeated letters")) %>%
-  ggplot(aes(x = as.Date(month), y = value, col = type)) +
+  ggplot(aes(x = as.Date(week), y = value, col = type)) +
   geom_point(alpha = 0.3) +
   geom_smooth(span = 0.3) +
   labs(x = "Date", y = "Count") +
@@ -143,7 +162,7 @@ all %>%
              linetype = "dotted",
              size = 2) +
   theme_bw() +
-  labs(title = glue("Monthly newsletter publication count, {min(year(all$month))}-{max(year(all$month))}"),
+  labs(title = glue("Monthly newsletter publication count, {min(year(all$week))}-{max(year(all$week))}"),
        x = "",
        subtitle = "Dotted redlines: 2016 and 2022 U.S. Presidential elections") +
   theme(legend.position = "bottom") +
@@ -161,7 +180,7 @@ dupes <- df %>%
   mutate(source = factor(source, levels = c("AAAJ-Atlanta", "AAAF"))) %>%
   group_by(processed_subject) %>%
   filter(n() > 1)
-
+ 
 map_dfr(seq(nrow(dupes) - 1), cal_dist) %>%
   filter(!is.na(dist)) %>%
   ggplot(aes(x = dist)) +
@@ -274,8 +293,6 @@ raw_text <- raw_text %>%
   mutate(text = clean_text(text)) %>%
   filter(!is.na(str_length(text))| !str_length(text) == 0) %>%
   filter(!str_detect(text, "atlanta 조지아"))
-
-raw_text
 ```
 
 ```{r}

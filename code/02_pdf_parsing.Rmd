@@ -1,5 +1,5 @@
 ---
-title: "01_web_scraping"
+title: "PDF parsing"
 author: "Jae Yeon Kim"
 output: html_document
 ---
