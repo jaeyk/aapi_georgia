@@ -19,6 +19,8 @@ pacman::p_load(tidyverse,
                readtext,
                textstem,
                textclean,
+               tokenizers, # fast tool tokenizing
+               DescTools, # descriptive tools
                stopwords,
                stm,
                quanteda,
@@ -29,6 +31,7 @@ pacman::p_load(tidyverse,
                tidymodels,
                keyATM,
                glue,
+               patchwork, 
                spacyr,
                pdftools,
                devtools)
@@ -50,8 +53,14 @@ source(here("functions", "utils.R"))
 # AAAJ
 aaaj <- vroom::vroom(here("processed_data", "aaaj_texts.csv"))
 
+# 37% of the texts are missing 
+mean(is.na(aaaj$msg))
+
 # AAAF
 aaaf <- read_csv(here("processed_data", "aaaf_texts.csv"))
+
+# 7% of the texts are missing 
+mean(is.na(aaaf$text))
 ```
 
 # Bind data
@@ -71,54 +80,75 @@ df$processed_text <- clean_text(df$text)
 df$processed_subject <- clean_text(df$subject)
 
 df_copy <- df
+```
 
-# press release 
+# Describe data 
+
+```{r}
+mode_subjects <- df %>%
+  group_by(source) %>%
+  summarize(mode = Mode(processed_subject))
+```
+
+```{r}
+# meta data 
+
+## press release 
 df$press_release <- if_else(str_detect(df$processed_subject, "press re"), 1, 0)
 
-# recap
+## recap
 df$recap <- if_else(str_detect(df$processed_subject, "recap"), 1, 0)
 
-# the total number of documents 
-paste("the total number of documents:", nrow(df))
-
-paste("the percentage of press releases:", mean(df$press_release)) # this pct is quite substantial
-
-paste("the percentage of recaps:", mean(df$recap)) # this pct is pretty small 
+df %>%
+  group_by(source) %>%
+  summarize(press_release_pct = mean(press_release),
+            recap_pct = mean(recap))
 ```
 
 # Wrangle data
 
 ```{r}
-# add week variable
+# add month variable
 df <- df %>%
-  mutate(week = cut(ymd(date), breaks = "week"))
+  mutate(month = as.yearmon(date, "%m/%Y"))
   
 comb_n <- df %>%
-  group_by(week, source) %>%
-  count()
-```
+  group_by(month, source) %>%
+  summarize(n = n(),
+            press_release_n = sum(press_release),
+            recap_n = sum(recap)) %>%
+  mutate(type = "non_unique")
 
-```{r}
 unique_comb_n <- df %>%
-  distinct(date, processed_subject, source) %>%
-  mutate(week = cut(ymd(date), breaks = "week")) %>%
-  group_by(week, source) %>%
-  count() %>%
-  rename(unique_n = n)
-```
-
-```{r}
-stringdist(df$subject[1], df$subject[2], method = 'cosine', q = 1)
+  distinct(date, processed_subject, source, press_release, recap) %>%
+  mutate(month = as.yearmon(date, "%m/%Y")) %>%
+  group_by(month, source) %>%
+  summarize(n = n(),
+            press_release_n = sum(press_release),
+            recap_n = sum(recap)) %>%
+  mutate(type = "unique")
 ```
 
 # Visualize data
 
 ```{r}
-comb_n %>%
-  ggplot(aes(x = as.Date(week), y = n, col = source)) +
-  geom_point(alpha = 0.3) +
-  geom_smooth(span = 0.5) +
-  labs(x = "Date", y = "Count") +
+aaaj_count <- comb_n %>%
+  filter(str_detect(source, "AAAJ"))
+
+aaaf_count <- comb_n %>%
+  filter(str_detect(source, "AAAF"))
+
+aaaj_count_plot <- aaaj_count %>%
+  pivot_longer(cols = c("press_release_n", "n"),
+               values_to = "scores", 
+               names_to = "variables") %>%
+  mutate(variables = recode(variables, 
+                            "press_release_n" = "Press release",
+                            "n" = "Total"
+                               )) %>%
+  ggplot(aes(x = as.Date(month), y = scores, col = variables)) +
+  geom_line(alpha = 0.8) +
+  labs(x = "Year Month", y = "") +
   geom_vline(xintercept = as.Date("2016-11-08"),
              col = "red",
              linetype = "dotted",
@@ -128,69 +158,45 @@ comb_n %>%
              linetype = "dotted",
              size = 2) +
   theme_bw() +
-  labs(title = glue("Monthly newsletter publication count, {min(year(comb_n$week))}-{max(year(comb_n$week))}"),
+  labs(title = glue("Monthly {unique(comb_n$source)[1]} publication count, {min(year(comb_n$month))}-{max(year(comb_n$month))}"),
        x = "",
-       subtitle = "Dotted redlines: U.S. Presidential elections") +
-  guides(fill="none") +
+       subtitle = "Dotted redlines: U.S. Presidential elections",
+       col = "N") +
   scale_colour_viridis_d(begin = 0.2, end = 0.5) +
-  labs(color = "Source")
+  xlim(as.Date("2012-01-01"), as.Date("2022-01-27"))
 
+aaaf_count_plot <- aaaf_count %>%
+  pivot_longer(cols = c("recap_n", "n"),
+               values_to = "scores", 
+               names_to = "variables") %>%
+  mutate(variables = recode(variables, 
+                            "recap_n" = "Monthly recap",
+                            "n" = "Total"
+                               )) %>%
+  ggplot(aes(x = as.Date(month), y = scores, col = variables)) +
+  geom_line(alpha = 0.8) +
+  labs(x = "Year Month", y = "") +
+  geom_vline(xintercept = as.Date("2016-11-08"),
+             col = "red",
+             linetype = "dotted",
+             size = 2) +
+  geom_vline(xintercept = as.Date("2020-11-03"),
+             col = "red",
+             linetype = "dotted",
+             size = 2) +
+  theme_bw() +
+  labs(title = glue("Monthly {unique(comb_n$source)[2]} publication count, {min(year(comb_n$month))}-{max(year(comb_n$month))}"),
+       x = "",
+       subtitle = "Dotted redlines: U.S. Presidential elections",
+       col = "N") +
+  scale_colour_viridis_d(begin = 0.2, end = 0.5) +
+  xlim(as.Date("2012-01-01"), as.Date("2022-01-27"))
+
+aaaj_count_plot / aaaf_count_plot
+  
 ggsave(here("outputs", "pub_count.png"))
 ```
 
-```{r}
-all <- left_join(comb_n, unique_comb_n) %>%
-  pivot_longer(cols = c("n", "unique_n"),
-               names_to = "type",
-               values_to = "value")
-
-all %>%
-  mutate(source = factor(source, levels = c("AAAJ-Atlanta", "AAAF"))) %>%
-  mutate(type = recode(type,
-                       "n" = "With repeated letters",
-                       "unique_n" = "Without repeated letters")) %>%
-  ggplot(aes(x = as.Date(week), y = value, col = type)) +
-  geom_point(alpha = 0.3) +
-  geom_smooth(span = 0.3) +
-  labs(x = "Date", y = "Count") +
-  geom_vline(xintercept = as.Date("2016-11-08"),
-             col = "red",
-             linetype = "dotted",
-             size = 2) +
-  geom_vline(xintercept = as.Date("2020-11-03"),
-             col = "red",
-             linetype = "dotted",
-             size = 2) +
-  theme_bw() +
-  labs(title = glue("Monthly newsletter publication count, {min(year(all$week))}-{max(year(all$week))}"),
-       x = "",
-       subtitle = "Dotted redlines: 2016 and 2022 U.S. Presidential elections") +
-  theme(legend.position = "bottom") +
-  scale_colour_viridis_d(begin = 0.2, end = 0.5) +
-  labs(color = "Source") +
-  facet_wrap(~source)
-
-ggsave(here("outputs", "pub_count_ext.png"))
-```
-
-Check the duplicate duration.
-
-```{r}
-dupes <- df %>%
-  mutate(source = factor(source, levels = c("AAAJ-Atlanta", "AAAF"))) %>%
-  group_by(processed_subject) %>%
-  filter(n() > 1)
- 
-map_dfr(seq(nrow(dupes) - 1), cal_dist) %>%
-  filter(!is.na(dist)) %>%
-  ggplot(aes(x = dist)) +
-    geom_histogram() +
-    facet_wrap(~source) +
-    theme_bw() +
-    labs(x = "Duration", y = "Count")
-
-ggsave(here("outputs", "dupe_count.png"))
-```
 # Named entity recognition
 
 ```{r}
@@ -291,7 +297,7 @@ raw_copy <- raw_text
 raw_text <- raw_text %>%
   mutate(trump = if_else(year >= 2017, 1, 0)) %>%
   mutate(text = clean_text(text)) %>%
-  filter(!is.na(str_length(text))| !str_length(text) == 0) %>%
+  filter(!is.na(str_length(text)) | !str_length(text) == 0) %>%
   filter(!str_detect(text, "atlanta 조지아"))
 ```
 
@@ -300,7 +306,7 @@ raw_text <- raw_text %>%
 # Build a corpus
 my_corpus <- corpus(raw_text$text)
 
-# Add the document-level covariates
+# Add the document-levels
 docvars(my_corpus, "source") <- raw_text$source %>% as.factor()
 docvars(my_corpus, "year") <- raw_text$year
 docvars(my_corpus, "date") <- raw_text$date

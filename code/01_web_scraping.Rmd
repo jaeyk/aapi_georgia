@@ -40,7 +40,7 @@ source(here("functions", "utils.R"))
 
 # spacy setup
 #spacy_install()
-spacy_initialize(python_executable = "/home/jae/anaconda3/bin/python")
+#spacy_initialize(python_executable = "/home/jae/anaconda3/bin/python")
 ```
 
 # Identity website elments 
@@ -73,7 +73,9 @@ links <- html_doc %>%
 # meta data 
 meta <- html_doc %>%
   html_nodes(xpath = "//div[@class='campaign']") 
+```
 
+```{r}
 meta_out <- purrr::map(meta, possibly(meta2content, otherwise = "Error"))
 
 meta_out <- meta_out %>%
