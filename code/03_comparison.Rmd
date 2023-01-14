@@ -33,8 +33,11 @@ pacman::p_load(tidyverse,
                spacyr,
                pdftools,
                devtools,
-               janitor, # alternative to base R table function 
-               ggrepel) # add text to ggplots
+               ggrepel,
+               testthat, 
+               textcat, 
+               cld2, 
+               cld3)
 
 # load custom functions
 source(here("functions", "utils.R"))
@@ -209,29 +212,121 @@ raw_text <- df %>%
 ```
 
 ```{r}
+# split texts 
+## AAAJ
+aaaj_text <- raw_text %>%
+  filter(str_detect(source, "AAAJ"))
+
+## AAAF
+aaaf_text <- raw_text %>%
+  filter(str_detect(source, "AAAF"))
+
 # extract entity
-entity_text <- spacy_parse(raw_text$text, tag = FALSE, entity = TRUE, lemma = TRUE) %>% 
+## AAAJ
+aaaj_entity <- spacy_parse(aaaj_text$text, tag = FALSE, entity = TRUE, lemma = TRUE) %>% 
+  entity_consolidate()
+
+## AAAF
+aaaf_entity <- spacy_parse(aaaf_text$text, tag = FALSE, entity = TRUE, lemma = TRUE) %>% 
   entity_consolidate()
 ```
 
 ```{r}
 # filter location entities
-geos <- entity_text %>%
+## AAAJ
+aaaj_geos <- aaaj_entity %>%
   filter(entity_type == "GPE")
 
-# create a nice frequency table
-geo_table <- tabyl(geos, lemma)
+## AAAF
+aaaf_geos <- aaaf_entity %>%
+  filter(entity_type == "GPE")
+```
 
+```{r}
+## combine the two 
+geos <- bind_rows(aaaj_geos %>%
+  mutate(source = "AAAJ-Atlanta"),
+
+aaaf_geos %>%
+  mutate(source = "AAAF"))
+
+test_that("the geos dataframe should include a column called source", {
+  expect_equal(sum(names(geos) %in% c("source")) > 0, TRUE)}
+)
+```
+
+```{r}
+# add county column 
+geos <- geos %>%
+  mutate(county = if_else(str_detect(lemma, "county"), "County", "Non-county"))
+
+# clean up counties 
+recursive_clean <- function(x) {
+
+  # hard coded example; I will comment it out later
+  #x <- "gwinnett_county"
+  
+  message(paste("cleaning", x))
+  
+  # if there's a county in the element, clean up.
+  # otherwise, leave it alone 
+  x <- if_else(str_detect(x, "county"), str_extract(x, pattern = ".*(?=\\_)"), x)
+  
+  # if there's no _ or there's no "county" in the element then stop 
+  if (!str_detect(x, "_") | !str_detect(x, "county")) {
+      
+      return(x)
+    
+  } else {
+        
+    # otherwise, keep going back to what's left 
+    return(recursive_clean(x)) 
+    
+  }
+  
+}
+
+# test the function
+test_that("cleaning up the lemma vector", {
+  expect_equal(recursive_clean("gwinnett_county"), "gwinnett")
+}
+)
+
+# remove a non-English lemma (Korean) or a mailbox
+geos <- geos %>%
+  filter(lemma != "스페인어로_배포되는") %>%
+  filter(!str_detect(lemma, "mailbox"))
+
+new_lemma <- map_chr(geos$lemma, recursive_clean)
+
+test_that("The row of the geos dataframe and the length of the new lemma should be equal if there's no miswrangling", {
+          expect_equal(nrow(geos), length(new_lemma))
+}
+)
+
+geos$clean_lemma <- new_lemma
+```
+
+
+```{r}
+# create the frequency table via dplyr
+geo_table <- geos %>%
+  group_by(county, source, clean_lemma) %>%
+  summarize(n = n()) %>%
+  mutate(percent = n/sum(n)) %>%
+  slice_max(order_by = percent, n = 5) # 10%
+```
+
+```{r}
 geo_table %>%
-  mutate(county = if_else(str_detect(lemma, "county"), "County", "Non-county")) %>%
-  group_by(county) %>%
-  slice_max(order_by = percent, n = 5) %>%
-  ggplot(aes(x = fct_reorder(lemma, percent), percent)) +
-  geom_col() +
-  facet_wrap(~county) +
-  coord_flip() +
-  labs(x = "", y = glue("Percent of the lemma among the geopolitical entities (n = {nrow(geo_table)})")) +
-  scale_y_continuous(labels = function(x) glue("{x*100}%"))
+  ggplot(aes(x = fct_reorder(clean_lemma, percent), percent, 
+             fill = source)) +
+    geom_col(position = position_dodge2()) +
+    coord_flip() +
+    labs(x = "Named entities", y = "Proportion among the geopolitical entities (%)",
+         fill = "Source") +
+    scale_y_continuous(labels = function(x) glue("{x*100}%")) +
+    facet_wrap(~county)
 
 ggsave(here("outputs", "geo_entity.png"))
 ```
