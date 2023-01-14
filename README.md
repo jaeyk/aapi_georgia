@@ -22,7 +22,7 @@ done
 
 ## Data analysis
 
-1. Plot the monthly publication patterns~~ (time series) (**Done**)
+1. Plot the monthly publication patterns (time series) (**Done**)
 
 2. Discover the mostly frequently mentioned locations across the two corpora (cross-sectional) (**Done**)
 
