@@ -25,3 +25,5 @@ done
 1. ~~Plot the monthly publication patterns~~ (time series)
 
 2. Discover the mostly frequently mentioned locations over time across the two corpora (time series)
+
+3. Discover the distribution of Asian American popualtions and votes in Georgia across counties
