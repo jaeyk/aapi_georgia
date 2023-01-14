@@ -22,8 +22,8 @@ done
 
 ## Data analysis
 
-1. ~~Plot the monthly publication patterns~~ (time series)
+1. Plot the monthly publication patterns~~ (time series) (**Done**)
 
-2. ~~Discover the mostly frequently mentioned locations across the two corpora (cross-sectional)~~
+2. Discover the mostly frequently mentioned locations across the two corpora (cross-sectional) (**Done**)
 
-3. Discover the distribution of Asian American populations and votes in Georgia across counties (reference: [AAAJ-Atlanta and AAAF 2022 joint report](https://static1.squarespace.com/static/5f0cc12a064e9716d52e6052/t/62dff75d3738db631340742d/1658845029456/AAPI_Report_v4.pdf))
+3. Discover the distribution of Asian American populations and votes in Georgia across counties (reference: [AAAJ-Atlanta and AAAF 2022 joint report](https://static1.squarespace.com/static/5f0cc12a064e9716d52e6052/t/62dff75d3738db631340742d/1658845029456/AAPI_Report_v4.pdf)) (**In progress**)
