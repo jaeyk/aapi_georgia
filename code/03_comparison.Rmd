@@ -15,6 +15,7 @@ pacman::p_load(tidyverse,
                lubridate,
                stringr, 
                zoo,
+               tidycensus,
                purrr,
                readtext,
                textstem,
@@ -155,11 +156,11 @@ aaaj_count_plot <- aaaj_count %>%
   geom_vline(xintercept = as.Date("2016-11-08"),
              col = "red",
              linetype = "dotted",
-             size = 2) +
+             size = 1) +
   geom_vline(xintercept = as.Date("2020-11-03"),
              col = "red",
              linetype = "dotted",
-             size = 2) +
+             size = 1) +
   theme_bw() +
   labs(title = glue("Monthly {unique(comb_n$source)[1]} publication count, {min(year(comb_n$month))}-{max(year(comb_n$month))}"),
        x = "",
@@ -182,11 +183,11 @@ aaaf_count_plot <- aaaf_count %>%
   geom_vline(xintercept = as.Date("2016-11-08"),
              col = "red",
              linetype = "dotted",
-             size = 2) +
+             size = 1) +
   geom_vline(xintercept = as.Date("2020-11-03"),
              col = "red",
              linetype = "dotted",
-             size = 2) +
+             size = 1) +
   theme_bw() +
   labs(title = glue("Monthly {unique(comb_n$source)[2]} publication count, {min(year(comb_n$month))}-{max(year(comb_n$month))}"),
        x = "",
@@ -329,4 +330,61 @@ geo_table %>%
     facet_wrap(~county)
 
 ggsave(here("outputs", "geo_entity.png"))
+```
+
+# Dictionary analysis
+
+```{r}
+aapi_counties <- c("gwinnett", "forsyth", "fulton", "cobb", "dekalb", "columbia", "clayton", "barrow", "fayette", "houston", "henry")
+
+i <- 1:length(aapi_counties)
+
+# generate slightly repetitive code
+glue("{aapi_counties[i]} = ifelse(str_detect(processed_text, '{aapi_counties[i]}'), str_count(processed_text), 0))") 
+           
+df <- df %>%
+  mutate(gwinnett = ifelse(str_detect(processed_text, 'gwinnett'), str_count(processed_text), 0),
+        forsyth = ifelse(str_detect(processed_text, 'forsyth'), str_count(processed_text), 0),
+        fulton = ifelse(str_detect(processed_text, 'fulton'), str_count(processed_text), 0),
+        cobb = ifelse(str_detect(processed_text, 'cobb'), str_count(processed_text), 0),
+        dekalb = ifelse(str_detect(processed_text, 'dekalb'), str_count(processed_text), 0),
+        columbia = ifelse(str_detect(processed_text, 'columbia'), str_count(processed_text), 0),
+        clayton = ifelse(str_detect(processed_text, 'clayton'), str_count(processed_text), 0),
+        barrow = ifelse(str_detect(processed_text, 'barrow'), str_count(processed_text), 0),
+        fayette = ifelse(str_detect(processed_text, 'fayette'), str_count(processed_text), 0),
+        houston = ifelse(str_detect(processed_text, 'houston'), str_count(processed_text), 0),
+        henry = ifelse(str_detect(processed_text, 'henry'), str_count(processed_text), 0))
+
+dic_time_scores <- df %>%
+  select(-c("text", "processed_text")) %>%
+  pivot_longer(cols = aapi_counties, 
+               names_to = "counties", 
+               values_to = "dummy_scores")
+
+dic_time_scores <- dic_time_scores %>%
+  mutate(month = as.yearmon(date, "%m/%Y"))
+
+dic_time_scores %>%
+  group_by(source, counties, date) %>%
+  summarize(total_daily_scores = sum(dummy_scores, na.rm = T)) %>%
+  mutate(counties = factor(counties)) %>%
+  mutate(counties = fct_reorder(counties, total_daily_scores)) %>%
+  ggplot(aes(x = as.Date(date), y = total_daily_scores, col = source)) +
+  geom_line() +
+  labs(x = "Date", y = "Daily word count",
+       col = "Source") +
+  facet_wrap(~counties) +
+  geom_vline(xintercept = as.Date("2016-11-08"),
+             col = "red",
+             linetype = "dotted",
+             size = 1) +
+  geom_vline(xintercept = as.Date("2020-11-03"),
+             col = "red",
+             linetype = "dotted",
+             size = 1) +
+  theme_bw() +
+  scale_colour_viridis_d(begin = 0.2, end = 0.5) +
+  xlim(as.Date("2012-01-01"), as.Date("2022-01-27"))
+
+ggsave(here("outputs", "geo_overtime.png"), width = 12)
 ```
