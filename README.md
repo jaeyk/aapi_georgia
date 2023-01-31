@@ -31,9 +31,9 @@ done
 ## Data dictionary 
 
 county_freq.csv (12,551 * 6)
-- date <date>: newsletter publication date (year-month-day).
-- subject <chr>: newsletter subject 
-- source <chr>: newsletter source. Either AAAJ-Atlanta/AAAF.
-- month <S3: yearon>: newsletter publication year and month.
-- counties <chr>: Georgia counties 
-- freq (dbl): the frequency in which a particualr Georgia country is mentioned in the newsletters 
+- `date` <date>: newsletter publication date (year-month-day).
+- `subject` <chr>: newsletter subject 
+- `source` <chr>: newsletter source. Either AAAJ-Atlanta/AAAF.
+- `month` <S3: yearon>: newsletter publication year and month.
+- `counties` <chr>: Georgia counties 
+- `freq` <dbl>: the frequency in which a particualr Georgia country is mentioned in the newsletters 
