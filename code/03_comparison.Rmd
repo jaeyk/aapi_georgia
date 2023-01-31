@@ -355,6 +355,14 @@ df <- df %>%
         houston = ifelse(str_detect(processed_text, 'houston'), str_count(processed_text), 0),
         henry = ifelse(str_detect(processed_text, 'henry'), str_count(processed_text), 0))
 
+county_freq <- dic_time_scores %>%
+  select(date, subject, source, month, counties, dummy_scores) %>%
+  rename(freq = dummy_scores)
+
+write_csv(county_freq, here("processed_data", "county_freq.csv"))
+```
+
+```{r}
 dic_time_scores <- df %>%
   select(-c("text", "processed_text")) %>%
   pivot_longer(cols = aapi_counties, 
