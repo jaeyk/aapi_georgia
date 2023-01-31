@@ -360,6 +360,8 @@ county_freq <- dic_time_scores %>%
   rename(freq = dummy_scores)
 
 write_csv(county_freq, here("processed_data", "county_freq.csv"))
+
+dim(county_freq)
 ```
 
 ```{r}
