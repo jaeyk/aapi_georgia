@@ -29,6 +29,7 @@ pacman::p_load(tidyverse,
                here,
                tidytext,
                tidymodels,
+               tidycensus, # to get the list of states and counties in the US
                glue,
                patchwork, 
                spacyr,
@@ -58,12 +59,12 @@ source(here("functions", "utils.R"))
 aaaj <- vroom::vroom(here("processed_data", "aaaj_texts.csv"))
 
 # 37% of the texts are missing 
-mean(is.na(aaaj$msg))
+mean(is.na(aaaj$text))
 
 # AAAF
 aaaf <- read_csv(here("processed_data", "aaaf_texts.csv"))
 
-# 7% of the texts are missing 
+# 8% of the texts are missing 
 mean(is.na(aaaf$text))
 ```
 
@@ -80,6 +81,12 @@ df <- full_join(aaaj %>%
                 aaaf %>%
                   mutate(source = "AAAF"))
 
+df %>%
+  group_by(source) %>%
+  summarize(n = n())
+```
+
+```{r}
 df$processed_text <- clean_text(df$text)
 df$processed_subject <- clean_text(df$subject)
 
@@ -115,7 +122,30 @@ df %>%
 # add month variable
 df <- df %>%
   mutate(month = as.yearmon(date, "%m/%Y"))
-  
+
+df %>%
+  group_by(source) %>%
+  summarize(miss_pct = mean(is.na(text)))
+
+df %>%
+  group_by(source, month) %>%
+  summarize(miss_pct = mean(is.na(text))) %>%
+  ggplot(aes(x = month, y = miss_pct)) +
+  geom_point() +
+  facet_wrap(~source) +
+  labs(y = "Missing rate",
+       x = "Month")
+
+ggsave(here("outputs", "missing_text.png"))
+
+df %>%
+  filter(is.na(text)) %>%
+  group_by(source) %>%
+  summarize(press_pct = mean(press_release),
+            recap_pct = mean(recap))
+```
+
+```{r}
 comb_n <- df %>%
   group_by(month, source) %>%
   summarize(n = n(),
@@ -335,55 +365,81 @@ ggsave(here("outputs", "geo_entity.png"))
 # Dictionary analysis
 
 ```{r}
-aapi_counties <- c("gwinnett", "forsyth", "fulton", "cobb", "dekalb", "columbia", "clayton", "barrow", "fayette", "houston", "henry")
+ga_counties <- tidycensus::fips_codes %>%
+  filter(state == "GA") %>%
+  mutate(county = str_replace_all(county, "County", "")) %>%
+  mutate(county = str_trim(county),
+         county = tolower(county)) %>%
+  pull(county)
 
-i <- 1:length(aapi_counties)
+count_county <- function(x) {
 
-# generate slightly repetitive code
-glue("{aapi_counties[i]} = ifelse(str_detect(processed_text, '{aapi_counties[i]}'), str_count(processed_text), 0))") 
-           
-df <- df %>%
-  mutate(gwinnett = ifelse(str_detect(processed_text, 'gwinnett'), str_count(processed_text), 0),
-        forsyth = ifelse(str_detect(processed_text, 'forsyth'), str_count(processed_text), 0),
-        fulton = ifelse(str_detect(processed_text, 'fulton'), str_count(processed_text), 0),
-        cobb = ifelse(str_detect(processed_text, 'cobb'), str_count(processed_text), 0),
-        dekalb = ifelse(str_detect(processed_text, 'dekalb'), str_count(processed_text), 0),
-        columbia = ifelse(str_detect(processed_text, 'columbia'), str_count(processed_text), 0),
-        clayton = ifelse(str_detect(processed_text, 'clayton'), str_count(processed_text), 0),
-        barrow = ifelse(str_detect(processed_text, 'barrow'), str_count(processed_text), 0),
-        fayette = ifelse(str_detect(processed_text, 'fayette'), str_count(processed_text), 0),
-        houston = ifelse(str_detect(processed_text, 'houston'), str_count(processed_text), 0),
-        henry = ifelse(str_detect(processed_text, 'henry'), str_count(processed_text), 0))
+  # 67 = gwinnett 
+  var <- ga_counties[x]
+    
+  count <- ifelse(str_detect(df$processed_text, var), str_count(df$processed_text, pattern = var), 0)
+  
+  out <- data.frame(count)
+  
+  names(out) <- var
+  
+  return(out)
+  
+}
 
-county_freq <- dic_time_scores %>%
-  select(date, subject, source, month, counties, dummy_scores) %>%
-  rename(freq = dummy_scores)
-
-write_csv(county_freq, here("processed_data", "county_freq.csv"))
-
-dim(county_freq)
+ga_counties_count <- purrr::map_dfc(seq(ga_counties), count_county)
 ```
 
 ```{r}
-dic_time_scores <- df %>%
-  select(-c("text", "processed_text")) %>%
-  pivot_longer(cols = aapi_counties, 
+county_freq <- df %>%
+  select(date, subject, source) %>%
+  bind_cols(ga_counties_count)
+
+write_csv(county_freq, here("processed_data", "county_freq.csv"))
+```
+
+```{r}
+dic_time_scores <- county_freq %>%
+  pivot_longer(cols = -c("date", "subject", "source"), 
                names_to = "counties", 
                values_to = "dummy_scores")
 
 dic_time_scores <- dic_time_scores %>%
   mutate(month = as.yearmon(date, "%m/%Y"))
 
-dic_time_scores %>%
+county_sep <- dic_time_scores %>%
+  group_by(counties) %>%
+  summarize(total_word_count = sum(dummy_scores, na.rm = T)) %>%
+  arrange(desc(total_word_count)) %>%
+  mutate(zero_county = if_else(total_word_count == 0, "zero", "non-zero"))
+
+dic_viz_df <- dic_time_scores %>% 
+  left_join(county_sep)
+
+dic_viz_df %>%
+  filter(zero_county == "non-zero") %>%
+  pull(counties) %>%
+  unique() %>%
+  length() # 66 counties
+
+66/length(ga_counties) # 41%
+```
+
+```{r}
+dic_viz <- dic_viz_df %>%
+  filter(zero_county == "non-zero") %>%
   group_by(source, counties, date) %>%
   summarize(total_daily_scores = sum(dummy_scores, na.rm = T)) %>%
   mutate(counties = factor(counties)) %>%
-  mutate(counties = fct_reorder(counties, total_daily_scores)) %>%
+  mutate(counties = fct_reorder(counties, total_daily_scores)) 
+```
+
+```{r}
+dic_viz %>%
   ggplot(aes(x = as.Date(date), y = total_daily_scores, col = source)) +
   geom_line() +
   labs(x = "Date", y = "Daily word count",
        col = "Source") +
-  facet_wrap(~counties) +
   geom_vline(xintercept = as.Date("2016-11-08"),
              col = "red",
              linetype = "dotted",
@@ -394,7 +450,10 @@ dic_time_scores %>%
              size = 1) +
   theme_bw() +
   scale_colour_viridis_d(begin = 0.2, end = 0.5) +
-  xlim(as.Date("2012-01-01"), as.Date("2022-01-27"))
+  xlim(as.Date("2012-01-01"), as.Date("2022-01-27")) +
+  facet_wrap(~counties, ncol = 6)
 
-ggsave(here("outputs", "geo_overtime.png"), width = 12)
+ggsave(here("outputs", "geo_overtime.png"), 
+       width = 10,
+       height = 10)
 ```

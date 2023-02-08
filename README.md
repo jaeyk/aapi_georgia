@@ -30,6 +30,13 @@ done
 
 ## Data dictionary 
 
+### newsletter data 
+
+- AAAJ - Atlanta (n = 78, missing text rate: 8%), 2018-2022
+- AAAF (n = 1063, missing text rate: 37%), 2020-2022
+
+### county frequency data 
+
 county_freq.csv (12,551 * 6)
 - `date` <date>: newsletter publication date (year-month-day).
 - `subject` <chr>: newsletter subject 
