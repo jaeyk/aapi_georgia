@@ -38,6 +38,7 @@ pacman::p_load(tidyverse,
                ggrepel,
                testthat, 
                textcat, 
+               text2vec,
                cld2, 
                cld3)
 
@@ -456,4 +457,59 @@ dic_viz %>%
 ggsave(here("outputs", "geo_overtime.png"), 
        width = 10,
        height = 10)
+```
+
+# Word embeddings 
+
+```{r}
+county_names <- names(ga_counties_count)
+county_counts <- ga_counties_count %>%
+  summarize(across(everything(), mean, na.rm = T)) %>%
+  t() %>%
+  tibble()
+
+county_counts$names <- county_names
+names(county_counts)[1] <- "pct"  
+
+top_10_counties <- county_counts %>%
+  select(names, pct) %>%
+  slice_max(order_by = pct, n = 10) %>%
+  pull(names)
+
+county_text <- df %>%
+  filter(str_detect(processed_text, paste(top_10_counties, collapse = "|"))) %>%
+  pull(processed_text)
+
+# create iterator over tokens
+tokens <- space_tokenizer(county_text)
+```
+
+```{r}
+# create vocab
+it <- itoken(tokens, progressbar = FALSE)
+vocab <- create_vocabulary(it)
+
+vocab <- prune_vocabulary(vocab, term_count_min = 5L)
+
+# Use our filtered vocabulary
+vectorizer <- vocab_vectorizer(vocab)
+
+# use window of 5 for context words
+tcm <- create_tcm(it, vectorizer, skip_grams_window = 5L)
+
+glove <- GlobalVectors$new(rank = 50, x_max = 10)
+
+wv_main <- glove$fit_transform(tcm, n_iter = 1000, convergence_tol = 0.00001, n_threads = 8)
+
+wv_context <- glove$components
+
+word_vectors <- wv_main + t(wv_context)
+
+dim(word_vectors)
+
+target <- word_vectors[top_10_counties[1], , drop = F]
+
+cos_sim <- sim2(x = word_vectors, y = target, method = "cosine", norm = "l2")
+
+head(sort(cos_sim[,1], decreasing = T), 20)
 ```

@@ -196,14 +196,25 @@ clean_text <- function(full_text) {
   vec <- tolower(full_text) %>%
     # Remove all non-alpha characters
     # gsub("[^[:alpha:]]", " ", .) %>%
+    replace_contraction() %>%
+    replace_number() %>%
+    replace_emoticon() %>%
+    replace_white() %>%
+    replace_hash() %>%
+    replace_incomplete() %>%
+    #hunspell::hunspell_suggest() %>%
+    #filter_row() %>%
+    add_missing_endmark() %>%
+    add_comma_space() %>%
+    replace_non_ascii() %>%
+    # Remove all non-alpha characters
+    gsub("[^[:alpha:]]", " ", .) %>%
     removePunctuation() %>%
-    # no special characters 
-    gsub("[[:punct:]]", " ", .) %>%
     # remove 1-2 letter words
     str_replace_all("\\b\\w{1,2}\\b", "") %>%
     # remove excess white space
     str_replace_all("^ +| +$|( ) +", "\\1")
-  
+    
   vec <- textstem::lemmatize_strings(vec)
   
   vec <- tm::removeWords(vec, words = c(stopwords::stopwords(source = "snowball")))
